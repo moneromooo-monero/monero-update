@@ -1,0 +1,9 @@
+monero-update is a secure installer/updater for Monero.
+
+It will automatically detect available updates, and verify their authenticity
+using DNSSEC and PGP. Using monero-update allows you to install Monero securely
+without having to perform all the verification steps manually, and possibly
+getting it wrong or forgetting some.
+
+Copyright (c) 2014-2019, The Monero Project
+Portions copyright (c) 2006-2013, Andrey N. Sabelnikov, www.sabelnikov.net

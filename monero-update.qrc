@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/">
+        <file>monero-update.qml</file>
+        <file>content/fontawesome.otf</file>
+        <file>content/monero48.png</file>
+    </qresource>
+</RCC>
