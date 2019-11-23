@@ -174,18 +174,18 @@ if(NOT UNBOUND_INCLUDE_DIR OR STATIC)
   # static OpenSSL libraries set up there after with target_link_libraries.
   add_subdirectory(unbound)
 
-  set(UNBOUND_STATIC true PARENT_SCOPE)
-  set(UNBOUND_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/unbound/libunbound" PARENT_SCOPE)
-  set(UNBOUND_LIBRARY "unbound" PARENT_SCOPE)
-  set(UNBOUND_LIBRARY_DIRS "${LIBEVENT2_LIBDIR}" PARENT_SCOPE)
+  set(UNBOUND_STATIC true)
+  set(UNBOUND_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/unbound/libunbound")
+  set(UNBOUND_LIBRARY "unbound")
+  set(UNBOUND_LIBRARY_DIRS "${LIBEVENT2_LIBDIR}")
 else()
   message(STATUS "Found libunbound include (unbound.h) in ${UNBOUND_INCLUDE_DIR}")
   if(UNBOUND_LIBRARIES)
     message(STATUS "Found libunbound shared library")
-    set(UNBOUND_STATIC false PARENT_SCOPE)
-    set(UNBOUND_INCLUDE ${UNBOUND_INCLUDE_DIR} PARENT_SCOPE)
-    set(UNBOUND_LIBRARY ${UNBOUND_LIBRARIES} PARENT_SCOPE)
-    set(UNBOUND_LIBRARY_DIRS "" PARENT_SCOPE)
+    set(UNBOUND_STATIC false)
+    set(UNBOUND_INCLUDE ${UNBOUND_INCLUDE_DIR})
+    set(UNBOUND_LIBRARY ${UNBOUND_LIBRARIES})
+    set(UNBOUND_LIBRARY_DIRS "")
   else()
     die("Found libunbound includes, but could not find libunbound library. Please make sure you have installed libunbound or libunbound-dev or the equivalent")
   endif()
@@ -230,12 +230,11 @@ add_executable(monero-update
 )
 
 target_link_libraries(monero-update
-  unbound
-  boost_filesystem
-  boost_regex
-  boost_thread
-  boost_chrono
-  boost_system
+  ${Boost_FILESYSTEM_LIBRARY}
+  ${Boost_REGEX_LIBRARY}
+  ${Boost_THREAD_LIBRARY}
+  ${Boost_CHRONO_LIBRARY}
+  ${Boost_SYSTEM_LIBRARY}
   ${UNBOUND_LIBRARY}
   ${OPENSSL_LIBRARIES}
 )
