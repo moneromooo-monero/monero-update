@@ -236,6 +236,7 @@ target_link_libraries(monero-update
   boost_thread
   boost_chrono
   boost_system
+  ${UNBOUND_LIBRARY}
   ${OPENSSL_LIBRARIES}
 )
 
