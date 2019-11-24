@@ -678,7 +678,6 @@ void Updater::fetch_gitian_sigs()
   std::string filename = boost::filesystem::path(url).filename().string();
 
   std::string expression = "([abcdefABCDEF0123456789]+)  " + filename + "$";
-  printf("Expression: %s\n", expression.c_str());
   STATIC_REGEXP_EXPR_1(rexp_match_hash_and_filename, expression, boost::regex::normal);
 
   setValidGitianSigs(0);
