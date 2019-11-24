@@ -29,6 +29,7 @@
  *  THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <unistd.h>
 #include <random>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
