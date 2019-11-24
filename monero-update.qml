@@ -175,9 +175,9 @@ ApplicationWindow {
       clip: true
       Layout.leftMargin: 8
       Layout.rightMargin: 8
+      height: 16 * defaultText.height
       Text {
         id: messages
-        height: 16 * defaultText.height
       }
     }
 
