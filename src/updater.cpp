@@ -34,6 +34,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <gpgme.h>
+#include <QDir>
+#include <QStringList>
+#include "misc_log_ex.h"
 #include "reg_exp_definer.h"
 #include "file_io_utils.h"
 #include "common/threadpool.h"
@@ -463,6 +466,35 @@ void Updater::check_hash()
   setHashValid(TriState::TriTrue);
 }
 
+static std::string find_gpg_directory()
+{
+  const char *path = getenv("PATH");
+  if (!path)
+  {
+    MDEBUG("Empty PATH");
+    return "";
+  }
+
+  MDEBUG("PATH: " << path);
+  QStringList filter("gpg.exe");
+
+  std::vector<std::string> directories;
+  boost::split(directories, path, boost::is_any_of(";"));
+  for (const std::string &directory: directories)
+  {
+    MDEBUG("Looking in " << directory);
+    QDir d(QString::fromStdString(directory));
+    QFileInfoList list = d.entryInfoList(filter);
+    if (!list.empty())
+    {
+      MINFO("gpg binary found in " << directory);
+      return directory;
+    }
+  }
+  MINFO("gpg binary not found");
+  return "";
+}
+
 bool Updater::init_gpgme()
 {
   boost::filesystem::path gpg_home = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%");
@@ -473,8 +505,11 @@ bool Updater::init_gpgme()
 
   gpg_error_t err;
 #ifdef _WIN32
+  std::string gpgdir = find_gpg_directory();
+  if (!gpgdir.empty())
+    gpgme_set_global_flag("w32-inst-dir", gpgdir.c_str());
   gpgme_set_global_flag("disable-gpgconf", "1");
-  gpgme_set_global_flag("gpg-name", "-gpgconf");
+  gpgme_set_global_flag("gpg-name", "gpgconf");
 #endif
   gpgme_check_version(NULL);
   err = gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP);
