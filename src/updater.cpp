@@ -67,15 +67,11 @@ static std::string detect_build_tag(void)
   return "mac-x64";
 #endif
 
-#if defined __linux__ && (defined __arm__ || defined __arch64__)
-  if (epee::file_io_utils::load_file_to_string("/proc/cpuinfo", cpuinfo))
-  {
-    if (strstr(cpuinfo, "ARMv7"))
-      return "linux-armv7";
-    if (strstr(cpuinfo, "ARMv8"))
-      return "linux-armv8";
-  }
-  // unknown, assume v7 for compatibility
+#if defined __linux__ && defined __aarch64__
+    return "linux-armv8";
+#endif
+
+#if defined __linux__ && defined __arm__
   return "linux-armv7";
 #endif
 
