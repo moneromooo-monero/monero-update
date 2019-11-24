@@ -471,16 +471,23 @@ bool Updater::init_gpgme()
   snprintf(env, sizeof(env), "GNUPGHOME=%s", gpg_home.string().c_str());
   putenv(env);
 
+  gpg_error_t err;
+#ifdef _WIN32
+  gpgme_set_global_flag("disable-gpgconf", "1");
+  gpgme_set_global_flag("gpg-name", "-gpgconf");
+#endif
   gpgme_check_version(NULL);
-  if (gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP))
+  err = gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP);
+  if (err)
   {
-    printf("Failed to initialize gpgme\n");
+    printf("Failed to initialize gpgme: %s\n", gpg_strerror(err));
     return false;
   }
 
-  if (gpgme_new(&ctx))
+  err = gpgme_new(&ctx);
+  if (err)
   {
-    printf("Failed to create context\n");
+    printf("Failed to create context: %s\n", gpg_strerror(err));
     return false;
   }
 
