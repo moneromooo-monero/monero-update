@@ -197,12 +197,14 @@ ApplicationWindow {
     ScrollView {
       visible: showDetails.checked
       Layout.fillWidth: true
+      Layout.fillHeight: true
       clip: true
       Layout.leftMargin: 8
       Layout.rightMargin: 8
-      height: 16 * defaultText.height
-      Text {
+      TextEdit {
         id: messages
+        readOnly: true
+        selectByMouse: true
       }
     }
 
