@@ -97,6 +97,10 @@ static const std::map<std::string, std::string> dnssec_to_gitian = {
   std::make_pair("linux-armv8", "aarch64-linux-gnu"),
 };
 
+static const std::map<std::string, std::string> platform_to_gitian = {
+  std::make_pair("mac", "osx"),
+};
+
 #ifndef BUILDTAG
 #define BUILDTAG "source"
 #define SUBDIR "source"
@@ -625,6 +629,9 @@ void Updater::fetch_gitian_sigs()
   auto idx = platform.find('-');
   if (idx != std::string::npos)
     platform = platform.substr(0, idx);
+  auto it = platform_to_gitian.find(platform);
+  if (it != platform_to_gitian.end())
+    platform = it->second;
   std::string base_tree_url_path = "/monero-project/gitian.sigs/tree/master/v" + version + "-" + platform;
   std::string base_blob_url_path = "/monero-project/gitian.sigs/master/v" + version + "-" + platform;
   std::string base_tree_url = "https://github.com" + base_tree_url_path;
@@ -658,12 +665,12 @@ void Updater::fetch_gitian_sigs()
   boost::filesystem::remove(path.string(), ec);
 
   const std::string subdir = strstr(buildtag.c_str(), "-source") ? "source" : strstr(software.c_str(), "-gui") ? "" : "cli";
-  auto it = dnssec_to_gitian.find(buildtag);
+  it = dnssec_to_gitian.find(buildtag);
   const std::string gitian_tag = it == dnssec_to_gitian.end() ? buildtag : it->second;
   const std::string url = tools::get_update_url(software, subdir, gitian_tag, version, false);
   std::string filename = boost::filesystem::path(url).filename().string();
 
-  std::string expression = "^\\ *([abcdefABCDEF0123456789]+)  " + filename + "$";
+  std::string expression = "([abcdefABCDEF0123456789]+)  " + filename + "$";
   printf("Expression: %s\n", expression.c_str());
   STATIC_REGEXP_EXPR_1(rexp_match_hash_and_filename, expression, boost::regex::normal);
 
