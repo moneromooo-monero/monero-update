@@ -29,6 +29,7 @@
 #define _REG_EXP_DEFINER_H_
 
 #include <boost/interprocess/detail/atomic.hpp>
+#include <boost/regex.hpp>
 #include "syncobj.h"
 
 namespace epee
@@ -48,36 +49,36 @@ namespace epee
 	static volatile uint32_t regexp_initialized_1 = 0;\
 	volatile uint32_t local_is_initialized_1 = regexp_initialized_1;\
 	if(!local_is_initialized_1)\
-	gregexplock.get_lock().lock();\
+	epee::gregexplock.get_lock().lock();\
 	static const boost::regex	var_name(xpr_text , reg_exp_flags);\
 	if(!local_is_initialized_1)\
 {\
 	boost::interprocess::ipcdetail::atomic_write32(&regexp_initialized_1, 1);\
-	gregexplock.get_lock().unlock();\
+	epee::gregexplock.get_lock().unlock();\
 }
 
 #define STATIC_REGEXP_EXPR_2(var_name, xpr_text, reg_exp_flags) \
 	static volatile uint32_t regexp_initialized_2 = 0;\
 	volatile uint32_t local_is_initialized_2 = regexp_initialized_2;\
 	if(!local_is_initialized_2)\
-	gregexplock.get_lock().lock().lock();\
+	epee::gregexplock.get_lock().lock().lock();\
 	static const boost::regex	var_name(xpr_text , reg_exp_flags);\
 	if(!local_is_initialized_2)\
 {\
 	boost::interprocess::ipcdetail::atomic_write32(&regexp_initialized_2, 1);\
-	gregexplock.get_lock().lock().unlock();\
+	epee::gregexplock.get_lock().lock().unlock();\
 }
 
 #define STATIC_REGEXP_EXPR_3(var_name, xpr_text, reg_exp_flags) \
 	static volatile uint32_t regexp_initialized_3 = 0;\
 	volatile uint32_t local_is_initialized_3 = regexp_initialized_3;\
 	if(!local_is_initialized_3)\
-	gregexplock.get_lock().lock().lock();\
+	epee::gregexplock.get_lock().lock().lock();\
 	static const boost::regex	var_name(xpr_text , reg_exp_flags);\
 	if(!local_is_initialized_3)\
 {\
 	boost::interprocess::ipcdetail::atomic_write32(&regexp_initialized_3, 1);\
-	gregexplock.get_lock().lock().unlock();\
+	epee::gregexplock.get_lock().lock().unlock();\
 }
 }
 

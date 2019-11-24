@@ -32,13 +32,19 @@
 #include <random>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
+#include <gpgme.h>
+#include "reg_exp_definer.h"
+#include "file_io_utils.h"
 #include "common/threadpool.h"
 #include "common/dns_utils.h"
 #include "common/vercmp.h"
 #include "common/updates.h"
 #include "common/download.h"
 #include "common/sha256sum.h"
+#include "pubkeys.h"
 #include "updater.h"
+
+#define MIN_GITIAN_SIGS 2
 
 static std::string detect_build_tag(void)
 {
@@ -79,10 +85,20 @@ static std::string detect_build_tag(void)
 #if defined __linux__ && defined __x86_64__
   return "linux-x64";
 #endif
-// TODO: armv8
 
   return "source";
 }
+
+static const std::map<std::string, std::string> dnssec_to_gitian = {
+  std::make_pair("linux-x64", "x86_64-linux-gnu"),
+  std::make_pair("linux-x32", "i686-linux-gnu"),
+  std::make_pair("win-x64", "x86_64-w64-mingw32"),
+  std::make_pair("win-x32", "i686-w64-mingw32"),
+  std::make_pair("freebsd", "x86_64-unknown-freebsd"),
+  std::make_pair("mac-x64", "x86_64-apple-darwin11"),
+  std::make_pair("linux-armv7", "arm-linux-gnueabihf"),
+  std::make_pair("linux-armv8", "aarch64-linux-gnu"),
+};
 
 #ifndef BUILDTAG
 #define BUILDTAG "source"
@@ -93,20 +109,27 @@ static std::string detect_build_tag(void)
 
 #define SOFTWARE "monero"
 
-static std::map<State, const char*> state_names = {
-  std::make_pair(StateNone, "None"),
-  std::make_pair(StateInit, "Initializing"),
-  std::make_pair(StateQueryDNS, "Querying DNS"),
-  std::make_pair(StateDNSFailed, "DNS check failed"),
-  std::make_pair(StateCheckVersion, "Checking version"),
-  std::make_pair(StateUpToDate, "We are up to date"),
-  std::make_pair(StateBackInTime, "Only old versions found"),
-  std::make_pair(StateNoUpdateInfoFound, "No update information found"),
-  std::make_pair(StateDownload, "Downloading update"),
-  std::make_pair(StateDownloadFailed, "Download failed"),
-  std::make_pair(StateCheckHash, "Checking failed"),
-  std::make_pair(StateBadHash, "Invalid hash"),
-  std::make_pair(StateValidUpdate, "Valid update downloaded and verified"),
+static std::map<State, std::pair<TriState::tristate_t, const char*>> states = {
+  std::make_pair(StateNone, std::make_pair(TriState::TriUnknown, "None")),
+  std::make_pair(StateInit, std::make_pair(TriState::TriUnknown, "Initializing")),
+  std::make_pair(StateQueryDNS, std::make_pair(TriState::TriUnknown, "Querying DNS")),
+  std::make_pair(StateDNSFailed, std::make_pair(TriState::TriFalse, "DNS check failed")),
+  std::make_pair(StateCheckVersion, std::make_pair(TriState::TriUnknown, "Checking version")),
+  std::make_pair(StateUpToDate, std::make_pair(TriState::TriTrue, "We are up to date")),
+  std::make_pair(StateBackInTime, std::make_pair(TriState::TriTrue, "Only old versions found")),
+  std::make_pair(StateNoUpdateInfoFound, std::make_pair(TriState::TriFalse, "No update information found")),
+  std::make_pair(StateDownload, std::make_pair(TriState::TriUnknown, "Downloading update")),
+  std::make_pair(StateDownloadFailed, std::make_pair(TriState::TriFalse, "Download failed")),
+  std::make_pair(StateCheckHash, std::make_pair(TriState::TriUnknown, "Checking hash")),
+  std::make_pair(StateBadHash, std::make_pair(TriState::TriFalse, "Invalid hash")),
+  std::make_pair(StateImportPubkeys, std::make_pair(TriState::TriUnknown, "Importing public keys")),
+  std::make_pair(StatePubkeyImportFailed, std::make_pair(TriState::TriFalse, "Failed to import public keys")),
+  std::make_pair(StateFetchGitianSigs, std::make_pair(TriState::TriUnknown, "Fetching Gitian signatures")),
+  std::make_pair(StateVerifyGitianSignatures, std::make_pair(TriState::TriUnknown, "Verifying Gitian signatures")),
+  std::make_pair(StateNoGitianSigs, std::make_pair(TriState::TriFalse, "No Gitian signatures found")),
+  std::make_pair(StateNotEnoughGitianSigs, std::make_pair(TriState::TriFalse, "Not enough matching Gitian signatures found")),
+  std::make_pair(StateBadGitianSigs, std::make_pair(TriState::TriFalse, "At least one Gitian signature was invalid")),
+  std::make_pair(StateValidUpdate, std::make_pair(TriState::TriTrue, "Valid update downloaded and verified")),
 };
 
 // All four MoneroPulse domains have DNSSEC on and valid
@@ -117,9 +140,14 @@ static const std::vector<std::string> dns_urls = {
     "updates.moneropulse.se"
 };
 
+static TriState::tristate_t get_state_outcome(State state)
+{
+  return states[state].first;
+}
+
 static const char *get_state_name(State state)
 {
-  return state_names[state];
+  return states[state].second;
 }
 
 Updater::Updater(QObject *parent):
@@ -127,6 +155,10 @@ Updater::Updater(QObject *parent):
   state(StateNone),
   dnsValid(TriState::TriUnknown),
   hashValid(TriState::TriUnknown),
+  validGitianSigs(0),
+  minValidGitianSigs(0),
+  totalGitianSigs(0),
+  processedGitianSigs(0),
 
   software(SOFTWARE),
   buildtag(detect_build_tag()),
@@ -135,7 +167,11 @@ Updater::Updater(QObject *parent):
   dns_query_done(false),
   version_check_done(false),
   download_done(false),
-  download_success(false)
+  download_success(false),
+  gitian_pubkeys_import_done(false),
+  gitian_pubkeys_import_success(false),
+  gitian_verify_sigs_done(false),
+  gitian_verify_sigs_success(false)
 {
   running = true;
   thread = boost::thread([this]() { updater_thread(); } );
@@ -162,6 +198,30 @@ void Updater::setHashValid(tristate_t t)
 {
   hashValid = t;
   emit hashValidChanged(hashValid);
+}
+
+void Updater::setValidGitianSigs(uint32_t sigs)
+{
+  validGitianSigs = sigs;
+  emit validGitianSigsChanged(validGitianSigs);
+}
+
+void Updater::setMinValidGitianSigs(uint32_t sigs)
+{
+  minValidGitianSigs = sigs;
+  emit minValidGitianSigsChanged(validGitianSigs);
+}
+
+void Updater::setProcessedGitianSigs(uint32_t sigs)
+{
+  processedGitianSigs = sigs;
+  emit processedGitianSigsChanged(processedGitianSigs);
+}
+
+void Updater::setTotalGitianSigs(uint32_t sigs)
+{
+  totalGitianSigs = sigs;
+  emit totalGitianSigsChanged(totalGitianSigs);
 }
 
 void Updater::load_txt_records_from_dns(const std::vector<std::string> &dns_urls, std::vector<dns_query_result_t> &results, std::vector<std::string> &good_records)
@@ -402,6 +462,324 @@ void Updater::check_hash()
   setHashValid(TriState::TriTrue);
 }
 
+bool Updater::init_gpgme()
+{
+  boost::filesystem::path gpg_home = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%");
+  boost::filesystem::create_directories(gpg_home);
+  static char env[256];
+  snprintf(env, sizeof(env), "GNUPGHOME=%s", gpg_home.string().c_str());
+  putenv(env);
+
+  gpgme_check_version(NULL);
+  if (gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP))
+  {
+    printf("Failed to initialize gpgme\n");
+    return false;
+  }
+
+  if (gpgme_new(&ctx))
+  {
+    printf("Failed to create context\n");
+    return false;
+  }
+
+  return true;
+}
+
+TriState::tristate_t Updater::verify_gitian_signature(const std::string &contents, const std::string &signature)
+{
+  gpgme_data_t contents_data, signature_data;
+  gpg_error_t err;
+
+  err = gpgme_data_new_from_mem(&contents_data, contents.data(), contents.size(), 0);
+  if (err)
+  {
+    printf("Failed to create contents data: %s\n", gpg_strerror(err));
+    return TriState::TriUnknown;
+  }
+  err = gpgme_data_new_from_mem(&signature_data, signature.data(), signature.size(), 0);
+  if (err)
+  {
+    printf("Failed to create signature data: %s\n", gpg_strerror(err));
+    return TriState::TriUnknown;
+  }
+
+  err = gpgme_op_verify(ctx, signature_data, contents_data, NULL);
+  gpgme_data_release(signature_data);
+  gpgme_data_release(contents_data);
+  if (err)
+  {
+    printf("Failed to verify signature: %s\n", gpg_strerror(err));
+    return TriState::TriFalse;
+  }
+  gpgme_verify_result_t result = gpgme_op_verify_result(ctx);
+  if (!result)
+  {
+    printf("Failed to get signature verification results\n");
+    return TriState::TriFalse;
+  }
+  if (result->signatures->status)
+  {
+    printf("Cannot check signature\n");
+    return TriState::TriUnknown;
+  }
+  if (result->signatures->summary & GPGME_SIGSUM_RED)
+  {
+    printf("Red signature\n");
+    return TriState::TriFalse;
+  }
+  if (result->signatures->summary & GPGME_SIGSUM_VALID)
+  {
+    printf("Valid signature\n");
+    return TriState::TriTrue;
+  }
+
+#if 0
+  printf("SIG:\n");
+  printf("valid: %d\n", result->signatures->summary & GPGME_SIGSUM_VALID);
+  printf("green: %d\n", result->signatures->summary & GPGME_SIGSUM_GREEN);
+  printf("red: %d\n", result->signatures->summary & GPGME_SIGSUM_RED);
+  printf("sys-error: %d\n", result->signatures->summary & GPGME_SIGSUM_SYS_ERROR);
+  printf("tofu: %d\n", result->signatures->summary & GPGME_SIGSUM_TOFU_CONFLICT);
+  printf("full: %x\n", result->signatures->summary);
+  printf("status: %x (%s)\n", result->signatures->status, gpgme_strerror(result->signatures->status));
+  printf("validity: %x\n", result->signatures->validity);
+  printf("validity_reason: %x (%s)\n", result->signatures->validity_reason, gpgme_strerror(result->signatures->validity_reason));
+#endif
+
+  return TriState::TriTrue;
+}
+
+void Updater::import_pubkeys()
+{
+  boost::unique_lock<boost::mutex> lock(mutex);
+  gpg_error_t err;
+
+  gitian_pubkeys_import_done = false;
+  gitian_pubkeys_import_success = false;
+
+  if (!init_gpgme())
+  {
+    add_message("Failed to initialize GPG");
+    gitian_pubkeys_import_done = true;
+    gitian_pubkeys_import_success = false;
+    return;
+  }
+  lock.unlock();
+
+  for (const auto &e: pubkeys)
+  {
+    gpgme_data_t pubkey_data;
+
+    err = gpgme_data_new_from_mem(&pubkey_data, e.second.data(), e.second.size(), 0);
+    if (err)
+    {
+      printf("Failed to create pubkey data: %s\n", gpg_strerror(err));
+      lock.lock();
+      gitian_pubkeys_import_done = true;
+      gitian_pubkeys_import_success = false;
+      return;
+    }
+    err = gpgme_op_import(ctx, pubkey_data);
+    if (err)
+    {
+      printf("Failed to import pubkey: %s\n", gpg_strerror(err));
+      lock.lock();
+      gitian_pubkeys_import_done = true;
+      gitian_pubkeys_import_success = false;
+      return;
+    }
+  }
+
+  err = gpgme_op_keylist_start (ctx, "", 0);
+  while (!err)
+  {
+    gpgme_key_t key;
+    err = gpgme_op_keylist_next (ctx, &key);
+    if (err)
+      break;
+    err = gpgme_op_tofu_policy(ctx, key, GPGME_TOFU_POLICY_GOOD);
+    if (err)
+    {
+      lock.lock();
+      add_message("Failed to set trust policy");
+      lock.unlock();
+    }
+    gpgme_key_release (key);
+  }
+
+  lock.lock();
+  gitian_pubkeys_import_done = true;
+  gitian_pubkeys_import_success = true;
+}
+
+void Updater::fetch_gitian_sigs()
+{
+  boost::unique_lock<boost::mutex> lock(mutex);
+
+  gitian_verify_sigs_success = false;
+  gitian_verify_sigs_success = false;
+
+  setTotalGitianSigs(0);
+  setProcessedGitianSigs(0);
+
+  boost::filesystem::path path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%");
+  std::string platform = buildtag;
+  auto idx = platform.find('-');
+  if (idx != std::string::npos)
+    platform = platform.substr(0, idx);
+  std::string base_tree_url_path = "/monero-project/gitian.sigs/tree/master/v" + version + "-" + platform;
+  std::string base_blob_url_path = "/monero-project/gitian.sigs/master/v" + version + "-" + platform;
+  std::string base_tree_url = "https://github.com" + base_tree_url_path;
+  std::string base_blob_url = "https://raw.githubusercontent.com" + base_blob_url_path;
+  add_message("Fetching Gitian signatures from " + base_tree_url);
+  lock.unlock();
+  if (!tools::download(path.string(), base_tree_url))
+  {
+    lock.lock();
+    add_message("Gitian signatures not found");
+    setValidGitianSigs(0);
+    gitian_verify_sigs_done = true;
+    gitian_verify_sigs_success = false;
+    lock.unlock();
+    set_state(StateNoGitianSigs);
+    return;
+  }
+  std::string s;
+  if (!epee::file_io_utils::load_file_to_string(path.string(), s))
+  {
+    lock.lock();
+    add_message("Gitian signatures not found");
+    setValidGitianSigs(0);
+    gitian_verify_sigs_done = true;
+    gitian_verify_sigs_success = false;
+    lock.unlock();
+    set_state(StateNoGitianSigs);
+    return;
+  }
+  boost::system::error_code ec;
+  boost::filesystem::remove(path.string(), ec);
+
+  const std::string subdir = strstr(buildtag.c_str(), "-source") ? "source" : strstr(software.c_str(), "-gui") ? "" : "cli";
+  auto it = dnssec_to_gitian.find(buildtag);
+  const std::string gitian_tag = it == dnssec_to_gitian.end() ? buildtag : it->second;
+  const std::string url = tools::get_update_url(software, subdir, gitian_tag, version, false);
+  std::string filename = boost::filesystem::path(url).filename().string();
+
+  std::string expression = "^\\ *([abcdefABCDEF0123456789]+)  " + filename + "$";
+  printf("Expression: %s\n", expression.c_str());
+  STATIC_REGEXP_EXPR_1(rexp_match_hash_and_filename, expression, boost::regex::normal);
+
+  setValidGitianSigs(0);
+  setMinValidGitianSigs(MIN_GITIAN_SIGS);
+  bool bad_signature_found = false;
+  std::vector<std::string> users;
+  idx = 0;
+  std::string link_prefix = "href=\"" + base_tree_url_path;
+  while (1)
+  {
+    idx = s.find(link_prefix, idx);
+    if (idx == std::string::npos)
+      break;
+    auto idx2 = s.find("\"", idx + link_prefix.size());
+    if (idx2 == std::string::npos || idx2 + 2 >= s.size())
+      break;
+    std::string user = s.substr(idx + link_prefix.size() + 1 , idx2 - idx - link_prefix.size() - 1);
+    idx = idx2;
+    if (user.size() > 20 || strspn(user.c_str(), "abcdefghijlkmnopqrstuvwxyzABCDEFGHIJLKMNOPQRSTUVWXYZ_-0123456789") != user.size())
+      continue;
+    users.push_back(std::move(user));
+  }
+
+  if (users.empty())
+  {
+    lock.lock();
+  gitian_verify_sigs_done = true;
+  gitian_verify_sigs_success = false;
+    add_message("No Gitian signatures found");
+    lock.unlock();
+    set_state(StateNoGitianSigs);
+    return;
+  }
+
+  set_state(StateVerifyGitianSignatures);
+  setTotalGitianSigs(users.size());
+
+  for (const std::string &user:users)
+  {
+    std::string short_version = version.substr(0, 4);
+    std::string assert_url = base_blob_url + "/" + user + "/" + software + "-" + platform + "-" + short_version + "-build.assert";
+    std::string sig_url = base_blob_url + "/" + user + "/" + software + "-" + platform + "-" + short_version + "-build.assert.sig";
+    std::string assert_contents, sig_contents;
+    boost::filesystem::remove(path.string(), ec);
+    if (tools::download(path.string(), assert_url) && epee::file_io_utils::load_file_to_string(path.string(), assert_contents))
+    {
+      boost::filesystem::remove(path.string(), ec);
+      if (tools::download(path.string(), sig_url) && epee::file_io_utils::load_file_to_string(path.string(), sig_contents))
+      {
+        tristate_t res = verify_gitian_signature(assert_contents, sig_contents);
+        if (res == TriState::TriTrue)
+        {
+          bool found = false;
+          std::string hash;
+          std::vector<std::string> lines;
+          boost::split(lines, assert_contents, boost::is_any_of("\n"));
+          for (const auto &line: lines)
+          {
+            boost::smatch result;
+            if (boost::regex_search(line, result, rexp_match_hash_and_filename, boost::match_default) && result[0].matched)
+            {
+              hash = result[1];
+              found = true;
+            }
+          }
+          if (!found)
+          {
+            lock.lock();
+            add_message("No hash found in Gitian assert file for " + filename + " from " + user);
+            lock.unlock();
+          }
+          else if (hash != expected_hash)
+          {
+            lock.lock();
+            add_message("Gitian hash does not match expected hash for " + filename + " from " + user);
+            lock.unlock();
+          }
+          else
+          {
+            lock.lock();
+            add_message("Good Gitian signature with matching hash from " + user);
+            setValidGitianSigs(validGitianSigs + 1);
+            lock.unlock();
+          }
+        }
+        else if (res == TriState::TriFalse)
+        {
+          lock.lock();
+          add_message("Bad Gitian signature from " + user);
+          lock.unlock();
+          bad_signature_found = true;
+        }
+        else
+        {
+          lock.lock();
+          add_message("Inconclusive Gitian signature from " + user);
+          lock.unlock();
+        }
+      }
+      else
+        add_message("Failed to fetch " + sig_url);
+    }
+    else
+      add_message("Failed to fetch " + assert_url);
+    setProcessedGitianSigs(processedGitianSigs + 1);
+  }
+  boost::filesystem::remove(path.string(), ec);
+  lock.lock();
+  gitian_verify_sigs_done = true;
+  gitian_verify_sigs_success = validGitianSigs >= MIN_GITIAN_SIGS && !bad_signature_found;
+}
+
 void Updater::add_message(const std::string &s)
 {
   messages.push_back(s);
@@ -442,12 +820,30 @@ void Updater::updater_thread()
       {
         int cmp = tools::vercmp(version.c_str(), current_version.c_str());
         if (cmp > 0)
-          set_state(StateDownload);
+          set_state(StateImportPubkeys);
         else if (cmp < 0)
           set_state(StateBackInTime);
         else
           set_state(StateUpToDate);
       }
+      break;
+    case StateImportPubkeys:
+      if (!gitian_pubkeys_import_done)
+        break;
+      if (gitian_pubkeys_import_success)
+        set_state(StateFetchGitianSigs);
+      else
+        set_state(StatePubkeyImportFailed);
+      break;
+    case StateVerifyGitianSignatures:
+      if (!gitian_verify_sigs_done)
+        break;
+      if (gitian_verify_sigs_success)
+        set_state(StateDownload);
+      else if (validGitianSigs > 0)
+        set_state(StateNotEnoughGitianSigs);
+      else
+        set_state(StateBadGitianSigs);
       break;
     case StateDownload:
       if (!download_done)
@@ -474,6 +870,8 @@ void Updater::set_state(State s)
     boost::unique_lock<boost::mutex> lock(mutex);
     state = s;
   }
+  emit stateChanged(get_state_name(state));
+  emit stateOutcomeChanged(get_state_outcome(state));
   switch (state)
   {
     case StateInit:
@@ -481,6 +879,8 @@ void Updater::set_state(State s)
       version_check_done = false;
       setDnsValid(TriState::TriUnknown);
       setHashValid(TriState::TriUnknown);
+      setValidGitianSigs(0);
+      setMinValidGitianSigs(0);
       break;
     case StateQueryDNS:
       load_txt_records_from_dns(dns_urls, dns_query_results, good_dns_records);
@@ -494,16 +894,27 @@ void Updater::set_state(State s)
     case StateCheckHash:
       check_hash();
       break;
+    case StateImportPubkeys:
+      import_pubkeys();
+      break;
+    case StateFetchGitianSigs:
+      fetch_gitian_sigs();
+      break;
     default:
       break;
   }
-  emit stateChanged(get_state_name(state));
 }
 
 QString Updater::getState() const
 {
   boost::unique_lock<boost::mutex> lock(mutex);
   return get_state_name(state);
+}
+
+TriState::tristate_t Updater::getStateOutcome() const
+{
+  boost::unique_lock<boost::mutex> lock(mutex);
+  return get_state_outcome(state);
 }
 
 QString Updater::getVersion() const
@@ -522,4 +933,25 @@ Updater::tristate_t Updater::getHashValid() const
 {
   boost::unique_lock<boost::mutex> lock(mutex);
   return hashValid;
+}
+
+uint32_t Updater::getValidGitianSigs() const
+{
+  boost::unique_lock<boost::mutex> lock(mutex);
+  return validGitianSigs;
+}
+
+uint32_t Updater::getMinValidGitianSigs() const
+{
+  return minValidGitianSigs;
+}
+
+uint32_t Updater::getProcessedGitianSigs() const
+{
+  return processedGitianSigs;
+}
+
+uint32_t Updater::getTotalGitianSigs() const
+{
+  return totalGitianSigs;
 }

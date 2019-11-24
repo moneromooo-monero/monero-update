@@ -215,6 +215,8 @@ endif()
 
 list(APPEND EXTRA_LIBRARIES ${CMAKE_DL_LIBS})
 
+find_package(GPGME REQUIRED)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -W -O2")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -O2")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DAUTO_INITIALIZE_EASYLOGGINGPP")
@@ -225,9 +227,17 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread")
 include_directories(${UNBOUND_INCLUDE})
 link_directories(${UNBOUND_LIBRARY_DIRS})
 
+# Final setup for gpgme
+include_directories(${GPGME_INCLUDE})
+link_directories(${GPGME_LIBRARY_DIRS})
+
 add_executable(monero-update
   ${monero_update_sources}
 )
+
+if(NOT GPGME_VANILLA_LIBRARIES)
+  message(FATAL_ERROR "Vanilla gpgme library not found")
+endif()
 
 target_link_libraries(monero-update
   ${Boost_FILESYSTEM_LIBRARY}
@@ -235,6 +245,7 @@ target_link_libraries(monero-update
   ${Boost_THREAD_LIBRARY}
   ${Boost_CHRONO_LIBRARY}
   ${Boost_SYSTEM_LIBRARY}
+  ${GPGME_VANILLA_LIBRARIES}
   ${UNBOUND_LIBRARY}
   ${OPENSSL_LIBRARIES}
 )

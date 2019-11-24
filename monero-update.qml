@@ -49,13 +49,13 @@ ApplicationWindow {
     var scale = add_unit == null ? 1 : add_unit < 1024 ? 1 : add_unit < 1024 * 1024 ? 1024 : add_unit < 1024 * 1024 * 1024 ? 1024 * 1024 : 1024 * 1024 * 1024
     return qsTr("%1%2").arg((bytes / scale).toFixed(1)).arg(unit_string)
   }
-  function get_tristate_text(state)
+  function get_tristate_text(state, text)
   {
     if (state == TriState.TriTrue)
-      return "<font color=\"green\">OK</font>";
+      return "<font color=\"green\">" + (text === undefined ? "OK" : text) + "</font>";
     if (state == TriState.TriFalse)
-      return "<font color=\"red\">Error</font>";
-    return "waiting..."
+      return "<font color=\"red\">" + (text === undefined ? "Error" : text) + "</font>";
+    return text === undefined ? "waiting..." : text
   }
 
   // size helpers
@@ -97,19 +97,44 @@ ApplicationWindow {
     }
 
     Text {
-      text: "state: " + updater.state
+      text: "State: " + get_tristate_text(updater.stateOutcome, updater.state)
+      textFormat: Text.RichText
       Layout.leftMargin: 8
       Layout.rightMargin: 8
     }
 
     Text {
-      text: "version: " + updater.version
+      text: "Version: " + get_tristate_text(updater.version === "" ? TriState.TriUnknown : TriState.TriTrue, updater.version)
       Layout.leftMargin: 8
       Layout.rightMargin: 8
     }
 
     Text {
       text: "DNS valid: " + get_tristate_text(updater.dnsValid)
+      textFormat: Text.RichText
+      Layout.leftMargin: 8
+      Layout.rightMargin: 8
+    }
+
+    RowLayout {
+      id: gitianProgress
+      visible: updater.processedGitianSigs < updater.totalGitianSigs
+      Layout.leftMargin: 8
+      Layout.rightMargin: 8
+      ProgressBar {
+        id: gitianProgressBar
+        minimumValue: 0
+        maximumValue: updater.totalGitianSigs
+        value: updater.processedGitianSigs
+      }
+      Text {
+        text: "Processed " + updater.processedGitianSigs + "/" + updater.totalGitianSigs + " signatures"
+      }
+    }
+
+    Text {
+      property string num_color: { var sigs = updater.validGitianSigs; if (sigs >= updater.minValidGitianSigs) return "#00ff00"; if (sigs >= updater.minValidGitianSigs / 2) return "#c0c000"; if (sigs > 0) return "#ff7f00"; return "#ff0000"; }
+      text: "Gitian matches: " + (updater.minValidGitianSigs == 0 ? "waiting..." : ("<font color=\"" + num_color + "\">" + updater.validGitianSigs + "/" + updater.minValidGitianSigs + "</font>"))
       textFormat: Text.RichText
       Layout.leftMargin: 8
       Layout.rightMargin: 8
