@@ -157,7 +157,7 @@ ApplicationWindow {
         font.pointSize: defaultText.font.pointSize * 1.1
         text: "<a href=\"file:// + filename + \">" + filename + "</a>"
         textFormat: Text.RichText
-        onLinkActivated: Qt.openUrlExternally(filename)
+        onLinkActivated: Qt.openUrlExternally("file://" + filename)
       }
     }
 
