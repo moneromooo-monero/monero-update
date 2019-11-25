@@ -50,6 +50,16 @@
 
 #define MIN_GITIAN_SIGS 2
 
+void set_strict_default_file_permissions(bool strict)
+{
+#if defined(__MINGW32__) || defined(__MINGW__)
+  // no clue about the odd one out
+#else
+  mode_t mode = strict ? 077 : 0;
+  umask(mode);
+#endif
+}
+
 static std::string detect_build_tag(void)
 {
   std::string cpuinfo;
@@ -497,8 +507,10 @@ static std::string find_gpg_directory()
 
 bool Updater::init_gpgme()
 {
-  boost::filesystem::path gpg_home = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%");
+  gpg_home = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("%%%%-%%%%-%%%%-%%%%");
+  set_strict_default_file_permissions(true);
   boost::filesystem::create_directories(gpg_home);
+  set_strict_default_file_permissions(false);
   static char env[256];
   snprintf(env, sizeof(env), "GNUPGHOME=%s", gpg_home.string().c_str());
   putenv(env);
@@ -820,6 +832,7 @@ void Updater::fetch_gitian_sigs()
     setProcessedGitianSigs(processedGitianSigs + 1);
   }
   boost::filesystem::remove(path.string(), ec);
+  boost::filesystem::remove_all(gpg_home.string(), ec);
   lock.lock();
   gitian_verify_sigs_done = true;
   gitian_verify_sigs_success = validGitianSigs >= MIN_GITIAN_SIGS && !bad_signature_found;

@@ -184,6 +184,7 @@ private:
 
   boost::filesystem::path download_path;
   tools::download_async_handle download_handle;
+  boost::filesystem::path gpg_home;
 
   gpgme_ctx_t ctx;
 };
