@@ -571,7 +571,7 @@ TriState::tristate_t Updater::verify_gitian_signature(const std::string &content
     return TriState::TriFalse;
   }
   gpgme_verify_result_t result = gpgme_op_verify_result(ctx);
-  if (!result)
+  if (!result || !result->signatures)
   {
     printf("Failed to get signature verification results\n");
     return TriState::TriFalse;
