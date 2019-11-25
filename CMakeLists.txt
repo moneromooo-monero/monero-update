@@ -191,10 +191,10 @@ if(NOT UNBOUND_INCLUDE_DIR OR STATIC)
   # be set in this case.
   # The unbound CMakeLists.txt can set it, since it's also needed for the
   # static OpenSSL libraries set up there after with target_link_libraries.
-  add_subdirectory(unbound)
+  add_subdirectory(external/unbound)
 
   set(UNBOUND_STATIC true)
-  set(UNBOUND_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/unbound/libunbound")
+  set(UNBOUND_INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/external/unbound/libunbound")
   set(UNBOUND_LIBRARY "unbound")
   set(UNBOUND_LIBRARY_DIRS "${LIBEVENT2_LIBDIR}")
 else()
