@@ -477,6 +477,7 @@ void Updater::check_hash()
   setHashValid(TriState::TriTrue);
 }
 
+#ifdef _WIN32
 static std::string find_gpg_directory()
 {
   const char *path = getenv("PATH");
@@ -505,6 +506,7 @@ static std::string find_gpg_directory()
   MINFO("gpg binary not found");
   return "";
 }
+#endif
 
 bool Updater::init_gpgme()
 {
