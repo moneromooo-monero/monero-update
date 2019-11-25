@@ -133,7 +133,7 @@ ApplicationWindow {
     }
 
     Text {
-      property string num_color: { var sigs = updater.validGitianSigs; if (sigs >= updater.minValidGitianSigs) return "#00ff00"; if (sigs >= updater.minValidGitianSigs / 2) return "#c0c000"; if (sigs > 0) return "#ff7f00"; return "#ff0000"; }
+      property string num_color: { var sigs = updater.validGitianSigs; if (sigs >= updater.minValidGitianSigs) return "green"; if (sigs >= updater.minValidGitianSigs / 2) return "yellow"; if (sigs > 0) return "orange"; return "red"; }
       text: "Gitian matches: " + (updater.minValidGitianSigs == 0 ? "waiting..." : ("<font color=\"" + num_color + "\">" + updater.validGitianSigs + "/" + updater.minValidGitianSigs + "</font>"))
       textFormat: Text.RichText
       Layout.leftMargin: 8
@@ -172,7 +172,7 @@ ApplicationWindow {
       Layout.leftMargin: 8
       Layout.rightMargin: 8
       Text {
-        color: "#00ff00"
+        color: "green"
         font.pointSize: defaultText.font.pointSize * 1.3
         text: "Verified and ready to install:"
       }
