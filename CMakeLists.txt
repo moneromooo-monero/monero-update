@@ -231,7 +231,17 @@ link_directories(${UNBOUND_LIBRARY_DIRS})
 include_directories(${GPGME_INCLUDE})
 link_directories(${GPGME_LIBRARY_DIRS})
 
+# Set some Win32 Specific settings
+if(WIN32)
+set(GUI_TYPE WIN32)
+endif(WIN32)
+# Set some Apple MacOS Specific settings
+if (APPLE)
+set(GUI_TYPE MACOSX_BUNDLE)
+endif (APPLE)
+
 add_executable(monero-update
+  ${GUI_TYPE}
   ${monero_update_sources}
 )
 
