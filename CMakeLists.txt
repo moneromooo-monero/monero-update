@@ -30,6 +30,8 @@
 
 cmake_minimum_required(VERSION 3.0.0)
 
+project(monero-update VERSION 0.1 LANGUAGES C CXX)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 list(INSERT CMAKE_MODULE_PATH 0
@@ -75,10 +77,27 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
 find_package(Qt5Qml REQUIRED)
 find_package(Qt5Quick REQUIRED)
+find_package(Qt5 COMPONENTS Core Quick Qml)
 
 include_directories(src/epee/include)
 include_directories(src/easylogging++)
 include_directories(src)
+
+if(STATIC)
+  # STATIC already configures most deps to be linked in statically,
+  # here we make more deps static if the platform permits it
+  set(Qt5_USE_STATIC_LIBS ON)
+  set(Qt5_USE_STATIC_RUNTIME ON)
+  if (MINGW)
+    # On Windows, this is as close to fully-static as we get:
+    # this leaves only deps on /c/Windows/system32/*.dll
+    set(STATIC_FLAGS "-static")
+  elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
+    # On Linux, we don't support fully static build, but these can be static
+    set(STATIC_FLAGS "-static-libgcc -static-libstdc++")
+  endif()
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${STATIC_FLAGS} ")
+endif()
 
 if (NOT DEFINED ENV{DEVELOPER_LOCAL_TOOLS})
   message(STATUS "Could not find DEVELOPER_LOCAL_TOOLS in env (not required)")
@@ -250,6 +269,9 @@ if(NOT GPGME_VANILLA_LIBRARIES)
 endif()
 
 target_link_libraries(monero-update
+  Qt5::Core
+  Qt5::Qml
+  Qt5::Quick
   ${Boost_FILESYSTEM_LIBRARY}
   ${Boost_REGEX_LIBRARY}
   ${Boost_THREAD_LIBRARY}
@@ -258,6 +280,7 @@ target_link_libraries(monero-update
   ${GPGME_VANILLA_LIBRARIES}
   ${UNBOUND_LIBRARY}
   ${OPENSSL_LIBRARIES}
+  ${EXTRA_LIBRARIES}
 )
 
 qt5_use_modules(monero-update Qml Quick)
