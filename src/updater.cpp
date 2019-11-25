@@ -419,6 +419,7 @@ void Updater::start_download()
     download_done = true;
     download_success = success;
     emit downloadFinished(success);
+    download_handle = NULL;
   };
 
   auto on_progress = [this](const std::string &path, const std::string &uri, size_t length, ssize_t content_length)
