@@ -64,9 +64,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} $
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
-find_package(Qt5Qml REQUIRED)
-find_package(Qt5Quick REQUIRED)
-find_package(Qt5 COMPONENTS Core Quick Qml)
+find_package(Qt5 COMPONENTS Core Gui Quick Qml Widgets)
 
 include_directories(src/epee/include)
 include_directories(src/easylogging++)
@@ -255,8 +253,10 @@ endif()
 
 target_link_libraries(monero-update
   Qt5::Core
+  Qt5::Gui
   Qt5::Qml
   Qt5::Quick
+  Qt5::Widgets
   ${Boost_FILESYSTEM_LIBRARY}
   ${Boost_REGEX_LIBRARY}
   ${Boost_THREAD_LIBRARY}
