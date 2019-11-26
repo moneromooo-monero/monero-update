@@ -328,9 +328,11 @@ boost::asio::ssl::context ssl_options_t::create_context() const
   switch (verification)
   {
     case ssl_verification_t::system_ca:
-      ssl_context.set_default_verify_paths();
 #ifdef _WIN32
-      add_windows_root_certs(ssl_context);
+      try { add_windows_root_certs(ssl_context); }
+      catch (const std::exception &e) { ssl_context.set_default_verify_paths(); }
+#else
+      ssl_context.set_default_verify_paths();
 #endif
       break;
     case ssl_verification_t::user_certificates:
