@@ -120,7 +120,7 @@ private:
   bool init_gpgme();
   void import_pubkeys();
   void fetch_gitian_sigs();
-  tristate_t verify_gitian_signature(const std::string &contents, const std::string &signature);
+  tristate_t verify_gitian_signature(const std::string &contents, const std::string &signature, std::string &fingerprint);
 
 signals:
   void stateChanged(const QString &state);

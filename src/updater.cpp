@@ -533,7 +533,7 @@ bool Updater::init_gpgme()
   return true;
 }
 
-TriState::tristate_t Updater::verify_gitian_signature(const std::string &contents, const std::string &signature)
+TriState::tristate_t Updater::verify_gitian_signature(const std::string &contents, const std::string &signature, std::string &fingerprint)
 {
   gpgme_data_t contents_data, signature_data;
   gpg_error_t err;
@@ -565,6 +565,7 @@ TriState::tristate_t Updater::verify_gitian_signature(const std::string &content
     printf("Failed to get signature verification results\n");
     return TriState::TriFalse;
   }
+  fingerprint = result->signatures->fpr;
   if (result->signatures->status)
   {
     printf("Cannot check signature\n");
@@ -753,6 +754,7 @@ void Updater::fetch_gitian_sigs()
 
   set_state(StateVerifyGitianSignatures);
   setTotalGitianSigs(users.size());
+  std::map<std::string, std::string> fingerprints;
 
   for (const std::string &user:users)
   {
@@ -766,8 +768,10 @@ void Updater::fetch_gitian_sigs()
       boost::filesystem::remove(path.string(), ec);
       if (tools::download(path.string(), sig_url) && epee::file_io_utils::load_file_to_string(path.string(), sig_contents))
       {
-        tristate_t res = verify_gitian_signature(assert_contents, sig_contents);
-        if (res == TriState::TriTrue)
+        std::string fingerprint;
+        tristate_t res = verify_gitian_signature(assert_contents, sig_contents, fingerprint);
+        const auto it = fingerprints.find(fingerprint);
+        if (res == TriState::TriTrue && it == fingerprints.end())
         {
           bool found = false;
           std::string hash;
@@ -797,10 +801,17 @@ void Updater::fetch_gitian_sigs()
           else
           {
             lock.lock();
-            add_message("Good Gitian signature with matching hash from " + user);
+            add_message("Good Gitian signature with matching hash from " + user + ", fingerprint " + fingerprint);
             setValidGitianSigs(validGitianSigs + 1);
             lock.unlock();
+            fingerprints.insert(std::make_pair(fingerprint, user));
           }
+        }
+        else if (res == TriState::TriTrue && it != fingerprints.end())
+        {
+          lock.lock();
+          add_message("Duplicate Gitian signature from " + user + ", previously seen from " + it->second + ", fingerprint " + fingerprint);
+          lock.unlock();
         }
         else if (res == TriState::TriFalse)
         {
@@ -812,7 +823,7 @@ void Updater::fetch_gitian_sigs()
         else
         {
           lock.lock();
-          add_message("Inconclusive Gitian signature from " + user);
+          add_message("Inconclusive Gitian signature from " + user + ", fingerprint " + fingerprint);
           lock.unlock();
         }
       }
