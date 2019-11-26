@@ -524,7 +524,7 @@ bool Updater::init_gpgme()
   if (!gpgdir.empty())
     gpgme_set_global_flag("w32-inst-dir", gpgdir.c_str());
   gpgme_set_global_flag("disable-gpgconf", "1");
-  gpgme_set_global_flag("gpg-name", "gpgconf");
+  gpgme_set_global_flag("gpg-name", "gpg");
 #endif
   gpgme_check_version(NULL);
   err = gpgme_engine_check_version(GPGME_PROTOCOL_OpenPGP);
