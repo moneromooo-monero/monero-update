@@ -176,4 +176,6 @@ private:
   boost::filesystem::path gpg_home;
 
   gpgme_ctx_t ctx;
+
+  std::map<std::string, std::string> imported_fingerprints;
 };

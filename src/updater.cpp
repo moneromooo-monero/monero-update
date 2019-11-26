@@ -637,23 +637,41 @@ void Updater::import_pubkeys()
       gitian_pubkeys_import_success = false;
       return;
     }
-  }
-
-  err = gpgme_op_keylist_start (ctx, "", 0);
-  while (!err)
-  {
+    const gpgme_import_result_t result = gpgme_op_import_result(ctx);
+    if (!result || !result->imports || !result->imports->fpr || result->imports->result)
+    {
+      printf("Failed to get results of pubkey import\n");
+      lock.lock();
+      gitian_pubkeys_import_done = true;
+      gitian_pubkeys_import_success = false;
+      return;
+    }
+    const std::string fingerprint = result->imports->fpr;
     gpgme_key_t key;
-    err = gpgme_op_keylist_next (ctx, &key);
+    err = gpgme_get_key(ctx, fingerprint.c_str(), &key, 0);
     if (err)
-      break;
+    {
+      printf("Failed to get imported pubkey");
+      lock.lock();
+      gitian_pubkeys_import_done = true;
+      gitian_pubkeys_import_success = false;
+      return;
+    }
     err = gpgme_op_tofu_policy(ctx, key, GPGME_TOFU_POLICY_GOOD);
     if (err)
     {
+      printf("Failed to set trust policy: %s\n", gpg_strerror(err));
       lock.lock();
-      add_message("Failed to set trust policy");
-      lock.unlock();
+      gitian_pubkeys_import_done = true;
+      gitian_pubkeys_import_success = false;
+      return;
     }
-    gpgme_key_release (key);
+
+    lock.lock();
+    add_message("Imported key " + fingerprint + " from " + e.first);
+    imported_fingerprints[fingerprint] = e.first;
+    lock.unlock();
+    gpgme_key_release(key);
   }
 
   lock.lock();
@@ -771,7 +789,7 @@ void Updater::fetch_gitian_sigs()
         std::string fingerprint;
         tristate_t res = verify_gitian_signature(assert_contents, sig_contents, fingerprint);
         const auto it = fingerprints.find(fingerprint);
-        if (res == TriState::TriTrue && it == fingerprints.end())
+        if (res == TriState::TriTrue && it == fingerprints.end() && imported_fingerprints.find(fingerprint) != imported_fingerprints.end())
         {
           bool found = false;
           std::string hash;
@@ -806,6 +824,12 @@ void Updater::fetch_gitian_sigs()
             lock.unlock();
             fingerprints.insert(std::make_pair(fingerprint, user));
           }
+        }
+        else if (res == TriState::TriTrue && it == fingerprints.end() && imported_fingerprints.find(fingerprint) == imported_fingerprints.end())
+        {
+          lock.lock();
+          add_message("Valid Gitian signature from " + user + ", but from key " + fingerprint + " which is not the one on record");
+          lock.unlock();
         }
         else if (res == TriState::TriTrue && it != fingerprints.end())
         {
@@ -843,6 +867,7 @@ void Updater::fetch_gitian_sigs()
 
 void Updater::add_message(const std::string &s)
 {
+  MINFO("UI message: " << s);
   messages.push_back(s);
   emit message(QString::fromStdString(s));
 }
