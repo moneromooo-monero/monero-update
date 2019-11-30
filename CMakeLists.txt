@@ -17,9 +17,15 @@
 #  You should have received a copy of the GNU General Public License
 #  along with monero-update.  If not, see <https://www.gnu.org/licenses/>.
 
-cmake_minimum_required(VERSION 3.0.0)
+# Qt5 requires at least CMake version 3.1.0
+cmake_minimum_required(VERSION 3.1.0)
 
 project(monero-update VERSION 0.1 LANGUAGES C CXX)
+
+# PkgConfig is used to find gpgme and set up its link line properly in MSYS2.
+# Some Linux distros do not provide a .pc file for gpgme, so we will use the
+# provided cmake/FindGPGME.cmake cmake module for that.
+find_package(PkgConfig)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -58,33 +64,46 @@ set(monero_update_sources
 set(monero_update_headers
 )
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${C_SECURITY_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_CPP_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${CXX_SECURITY_FLAGS}")
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
-
-find_package(Qt5 COMPONENTS Core Gui Quick Qml Widgets)
-
 include_directories(src/epee/include)
 include_directories(src/easylogging++)
 include_directories(src)
 
-if(STATIC)
-  # STATIC already configures most deps to be linked in statically,
-  # here we make more deps static if the platform permits it
-  set(Qt5_USE_STATIC_LIBS ON)
-  set(Qt5_USE_STATIC_RUNTIME ON)
-  if (MINGW)
-    # On Windows, this is as close to fully-static as we get:
-    # this leaves only deps on /c/Windows/system32/*.dll
-    set(STATIC_FLAGS "-static")
-  elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
-    # On Linux, we don't support fully static build, but these can be static
-    set(STATIC_FLAGS "-static-libgcc -static-libstdc++")
-  endif()
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${STATIC_FLAGS} ")
+# Check whether we're on a 32-bit or 64-bit system
+if(CMAKE_SIZEOF_VOID_P EQUAL "8")
+  set(DEFAULT_BUILD_64 ON)
+else()
+  set(DEFAULT_BUILD_64 OFF)
 endif()
+option(BUILD_64 "Build for 64-bit? 'OFF' builds for 32-bit." ${DEFAULT_BUILD_64})
+
+if(BUILD_64)
+  set(ARCH_WIDTH "64")
+else()
+  set(ARCH_WIDTH "32")
+endif()
+message(STATUS "Building for a ${ARCH_WIDTH}-bit system")
+
+if(MINGW)
+  string(REGEX MATCH "^[^/]:/[^/]*" msys2_install_path "${CMAKE_C_COMPILER}")
+  message(STATUS "MSYS location: ${msys2_install_path}")
+  set(CMAKE_INCLUDE_PATH "${msys2_install_path}/mingw${ARCH_WIDTH}/include")
+  # This is necessary because otherwise CMake will make Boost libraries -lfoo
+  # rather than a full path. Unfortunately, this makes the shared libraries get
+  # linked due to a bug in CMake which misses putting -static flags around the
+  # -lfoo arguments.
+  set(DEFLIB ${msys2_install_path}/mingw${ARCH_WIDTH}/lib)
+  list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_DIRECTORIES ${DEFLIB})
+  list(REMOVE_ITEM CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES ${DEFLIB})
+endif()
+
+# Qt5 components that we use are required, otherwise what are we doing ?
+if(MINGW AND STATIC)
+  # Find Qt5 cmake config folder of the MSYS2 mingw-w64-{x86_64,i686}-qt5-static package(s)
+  find_package(Qt5 REQUIRED COMPONENTS Core Gui Network Quick Qml Widgets CONFIG NO_DEFAULT_PATH PATHS ${msys2_install_path}/mingw${ARCH_WIDTH}/qt5-static/lib/cmake)
+else()
+  find_package(Qt5 REQUIRED COMPONENTS Core Gui Network Quick Qml Widgets)
+endif()
+message(STATUS "Using Qt5 package/config found at ${Qt5_DIR}")
 
 if (NOT DEFINED ENV{DEVELOPER_LOCAL_TOOLS})
   message(STATUS "Could not find DEVELOPER_LOCAL_TOOLS in env (not required)")
@@ -107,6 +126,7 @@ endif()
 set(OLD_LIB_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(Boost_NO_BOOST_CMAKE ON)
 if(STATIC)
+  set(OPENSSL_USE_STATIC_LIBS ON)
   if(MINGW)
     set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
   endif()
@@ -114,7 +134,7 @@ if(STATIC)
   set(Boost_USE_STATIC_LIBS ON)
   set(Boost_USE_STATIC_RUNTIME ON)
 endif()
-find_package(Boost 1.58 QUIET REQUIRED COMPONENTS system filesystem thread date_time chrono regex serialization program_options locale)
+find_package(Boost 1.58 QUIET REQUIRED COMPONENTS system filesystem thread chrono regex)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${OLD_LIB_SUFFIXES})
 if(NOT Boost_FOUND)
@@ -200,6 +220,7 @@ endif()
 if(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wa,-mbig-obj")
   set(EXTRA_LIBRARIES mswsock;ws2_32;iphlpapi;crypt32;bcrypt)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase -Wl,--high-entropy-va")
   if(DEPENDS)
     set(ICU_LIBRARIES icuio icui18n icuuc icudata icutu iconv)
   else()
@@ -218,10 +239,56 @@ elseif(NOT MSVC AND NOT DEPENDS)
   find_library(RT rt)
   set(EXTRA_LIBRARIES ${RT})
 endif()
+find_library(Z z)
+if(Z)
+  list(APPEND EXTRA_LIBRARIES ${Z})
+endif()
 
 list(APPEND EXTRA_LIBRARIES ${CMAKE_DL_LIBS})
 
-find_package(GPGME REQUIRED)
+if(STATIC)
+  # STATIC already configures most deps to be linked in statically,
+  # here we make more deps static if the platform permits it
+  set(Qt5_USE_STATIC_LIBS ON)
+  set(Qt5_USE_STATIC_RUNTIME ON)
+  # The definitions below are commented out because it seems (most?) Linux distros
+  # do not provide static Qt5 libs, so the binary will be linked against shared Qt5 libs.
+  # Uncomment if you have static Qt5 libs and you know what you are doing (see the MINGW
+  # section below).
+  # add_definitions(-DUSE_STATIC_QT -DQT_STATICPLUGIN)
+  if (MINGW)
+    # On Windows, this is as close to fully-static as we get:
+    # this leaves only deps on /c/Windows/system32/*.dll
+    set(STATIC_FLAGS "-static")
+    add_definitions(-DQT_STATIC -DQT_STATICPLUGIN)
+    # Here we set the path to static Qt5 QML libs provided by mingw-w64-{x86_64,i686}-qt5-static MSYS2 package(s).
+    set(MSYS2_QML_STATIC_PATH "${Qt5_DIR}/../../../share/qt5/qml")
+    # Here we set link paths manually to static Qt5 QML libs specified below in QT5_STATICLIBS because pkgconfig
+    # or cmake config files are not provided in MSYS2 with these libs.
+    link_directories(${MSYS2_QML_STATIC_PATH}/QtQuick.2 ${MSYS2_QML_STATIC_PATH}/QtQuick/Controls ${MSYS2_QML_STATIC_PATH}/QtQuick/Controls/Styles/Flat ${MSYS2_QML_STATIC_PATH}/QtQuick/Layouts ${MSYS2_QML_STATIC_PATH}/QtQuick/Window.2 ${MSYS2_QML_STATIC_PATH}/QtGraphicalEffects ${MSYS2_QML_STATIC_PATH}/QtGraphicalEffects/private)
+    set(QT5_STATICLIBS qtquick2plugin qtquickcontrolsplugin qtquickextrasflatplugin qquicklayoutsplugin windowplugin qtgraphicaleffectsplugin qtgraphicaleffectsprivate Qt5::QWindowsIntegrationPlugin)
+  elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
+    # On Linux, we don't support fully static build, but these can be static
+    set(STATIC_FLAGS "${STATIC_FLAGS} -static-libgcc -static-libstdc++")
+  endif()
+  set(CMAKE_AUTOSTATICPLUGINS ON)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${STATIC_FLAGS}")
+endif()
+
+# Use PkgConf module in MSYS2 and cmake module elsewhere to find gpgme.
+# Using the provided cmake/FindGPGME.cmake module in MSYS2 does not set separate vars for static and dynamic libs,
+# making our lives miserable crafting the link line with static gpgme dependencies when building static.
+if(MINGW)
+  pkg_check_modules(GPGME REQUIRED gpgme)
+  if(NOT GPGME_LIBRARIES OR NOT GPGME_STATIC_LIBRARIES)
+    message(FATAL_ERROR "gpgme library not found")
+  endif()
+else()
+  find_package(GPGME REQUIRED)
+  if(NOT GPGME_VANILLA_LIBRARIES)
+    message(FATAL_ERROR "Vanilla gpgme library not found")
+  endif()
+endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -W -Wno-unused-parameter -O2")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wno-unused-parameter -O2")
@@ -234,39 +301,51 @@ include_directories(${UNBOUND_INCLUDE})
 link_directories(${UNBOUND_LIBRARY_DIRS})
 
 # Final setup for gpgme
-include_directories(${GPGME_INCLUDE})
+# gpgme vars for includes and libs are called differently between PkgConf and FindGPGME.cmake
 link_directories(${GPGME_LIBRARY_DIRS})
+if(MINGW)
+  include_directories(${GPGME_INCLUDE_DIRS})
+  if(STATIC)
+    set(GPGME_LIBS ${GPGME_STATIC_LIBRARIES})
+  else()
+    set(GPGME_LIBS ${GPGME_LIBRARIES})
+  endif()
+else()
+  include_directories(${GPGME_INCLUDES})
+  set(GPGME_LIBS ${GPGME_VANILLA_LIBRARIES})
+endif()
 
 # Set some Win32 Specific settings
 if(WIN32)
 set(GUI_TYPE WIN32)
 endif(WIN32)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${C_SECURITY_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_CPP_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${CXX_SECURITY_FLAGS}")
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+
 add_executable(monero-update
   ${GUI_TYPE}
   ${monero_update_sources}
 )
-
-if(NOT GPGME_VANILLA_LIBRARIES)
-  message(FATAL_ERROR "Vanilla gpgme library not found")
-endif()
 
 target_link_libraries(monero-update
   Qt5::Core
   Qt5::Gui
   Qt5::Qml
   Qt5::Quick
+  Qt5::Network
   Qt5::Widgets
   ${Boost_FILESYSTEM_LIBRARY}
   ${Boost_REGEX_LIBRARY}
   ${Boost_THREAD_LIBRARY}
   ${Boost_CHRONO_LIBRARY}
   ${Boost_SYSTEM_LIBRARY}
-  ${GPGME_VANILLA_LIBRARIES}
+  ${GPGME_LIBS}
   ${UNBOUND_LIBRARY}
   ${OPENSSL_LIBRARIES}
+  ${QT5_STATICLIBS}
   ${EXTRA_LIBRARIES}
 )
-
-qt5_use_modules(monero-update Qml Quick)
-

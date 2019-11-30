@@ -29,6 +29,20 @@
 Q_DECLARE_METATYPE(uint32_t)
 Q_DECLARE_METATYPE(std::string)
 
+#ifdef QT_STATICPLUGIN
+#include <QtPlugin>
+#ifdef _WIN32
+Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)
+#endif // WIN32
+Q_IMPORT_PLUGIN(QtQuick2Plugin)
+Q_IMPORT_PLUGIN(QtQuickControls1Plugin)
+Q_IMPORT_PLUGIN(QtQuickExtrasStylesPlugin)
+Q_IMPORT_PLUGIN(QtQuickLayoutsPlugin)
+Q_IMPORT_PLUGIN(QtQuick2WindowPlugin)
+Q_IMPORT_PLUGIN(QtGraphicalEffectsPlugin)
+Q_IMPORT_PLUGIN(QtGraphicalEffectsPrivatePlugin)
+#endif // QT_STATICPLUGIN
+
 int main(int argc, char **argv)
 {
   QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
