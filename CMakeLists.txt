@@ -318,6 +318,7 @@ endif()
 # Set some Win32 Specific settings
 if(WIN32)
 set(GUI_TYPE WIN32)
+set(APPICON "${CMAKE_SOURCE_DIR}/appicon.rc")
 endif(WIN32)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${COVERAGE_FLAGS} ${PIC_FLAG} ${C_SECURITY_FLAGS}")
@@ -329,6 +330,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 add_executable(monero-update
   ${GUI_TYPE}
   ${monero_update_sources}
+  ${APPICON}
 )
 
 target_link_libraries(monero-update
