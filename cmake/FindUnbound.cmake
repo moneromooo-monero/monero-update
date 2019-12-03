@@ -27,6 +27,10 @@
 
 MESSAGE(STATUS "Looking for libunbound")
 
+if(STATIC)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES .a .dylib .so)
+endif()
+
 FIND_PATH(UNBOUND_INCLUDE_DIR
   NAMES unbound.h
   PATH_SUFFIXES include/ include/unbound/
