@@ -11,5 +11,6 @@ Portions copyright (c) 2006-2013, Andrey N. Sabelnikov, www.sabelnikov.net
 monero-update is licensed under the GNU Public License version 3 or later.
 See the file COPYING for details.
 
+Dependencies: Qt 5, gpgme
 Build: mkdir build; cd build; cmake ..; make; cd ..
 Run: ./build/monero-update
