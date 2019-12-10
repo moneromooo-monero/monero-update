@@ -68,6 +68,7 @@ int main(int argc, char **argv)
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("mainApp", &gui);
   engine.rootContext()->setContextProperty("updater", &updater);
+  engine.rootContext()->setContextProperty("isWindows", ELPP_OS_WINDOWS);
 
   engine.load(QStringLiteral("qrc:///monero-update.qml"));
   return gui.exec();
